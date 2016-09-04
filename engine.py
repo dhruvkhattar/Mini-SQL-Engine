@@ -3,8 +3,10 @@
 #     Author : Dhruv Khattar         #
 #####################################
 
+from __future__ import division
 import re
 import numpy as np
+import sys
 from prettytable import PrettyTable
 
 METAFILE = 'metadata.txt'
@@ -48,11 +50,12 @@ class Engine():
                     line = line.split(',')
                     idx = 0
                     for col in self.tables[table].attr:
-                        self.tables[table].cols[col].append(line[idx].strip())
+                        self.tables[table].cols[col].append(int(line[idx].strip()))
                         idx += 1
 
 
     def processRows(self, query):
+        
         if '*' in query.cols:
             query.cols = []
             for table in query.tables:
@@ -69,15 +72,91 @@ class Engine():
                         row.append(self.tables[table].cols[col][i])
                 if cnt > 1:
                     print 'Same Column name in 2 tables.'
-            print row
             t.add_row(row)
         print t
 
+
+    def processAgg(self, query):
+        
+        t = PrettyTable(query.cols)
+        row = []
+        for col in query.cols:
+            func = re.sub(r'\(.+\)', '', col)
+            attr = re.sub(r'.+\((.+)\)', r'\1', col)
+            cnt = 0
+            if re.match(r'(?i)(sum)',func):
+                for table in query.tables:
+                    if attr in self.tables[table].cols:
+                        cnt += 1
+                        agg = 0
+                        for i in self.idx:
+                            agg += self.tables[table].cols[attr][i]
+                        row.append(agg)
+            elif re.match(r'(?i)(max)',func):
+                for table in query.tables:
+                    if attr in self.tables[table].cols:
+                        cnt += 1
+                        agg = -sys.maxint - 1
+                        for i in self.idx:
+                            agg = max(agg, self.tables[table].cols[attr][i])
+            elif re.match(r'(?i)(min)',func):
+                for table in query.tables:
+                    if attr in self.tables[table].cols:
+                        cnt += 1
+                        agg = sys.maxint
+                        for i in self.idx:
+                            agg = min(agg, self.tables[table].cols[attr][i])
+            elif re.match(r'(?i)(avg)',func):
+                for table in query.tables:
+                    if attr in self.tables[table].cols:
+                        cnt += 1
+                        agg = 0
+                        for i in self.idx:
+                            agg += self.tables[table].cols[attr][i]
+                        agg /= len(self.idx) 
+            
+            if cnt > 1:
+                print 'Same Column name ' +'"' + attr + '"' + ' in 2 tables.'
+                return
+        row.append(agg)
+        t.add_row(row)
+        print t
+
+
+    def processDistinct(self, query):
+        
+        if len(query.cols) > 1:
+            print 'Distinct can only be used with one column'
+            return
+        t = PrettyTable(query.cols)        
+        col = re.sub(r'.+\((.+)\)', r'\1', query.cols[0])
+        distinct = {}
+        for i in self.idx:
+            row = []
+            cnt = 0
+            for table in query.tables:
+                if col in self.tables[table].cols:
+                    cnt += 1
+                    if self.tables[table].cols[col][i] not in distinct:
+                        row.append(self.tables[table].cols[col][i])
+                        distinct[self.tables[table].cols[col][i]] = 1
+            if cnt > 1:
+                print 'Same Column name in 2 tables.'
+            if row:
+                t.add_row(row)
+        print t
 
 
     def process(self, query, flag):
         if flag == 1:
             self.idx = xrange(self.tables[query.tables[0]].n)
+            if any(re.match(r'(?i)(distinct)', word) for word in query.cols):
+                self.processDistinct(query)
+                return
+            for word in query.cols:
+                if re.match(r'.+\(.+\)', word):
+                    self.processAgg(query)
+                    return
             self.processRows(query)
 
 
@@ -85,6 +164,8 @@ class Engine():
         
         while True:
             line = raw_input('MiniSQL>')
+            if line == 'exit':
+                break
             queries = line.split(';')
             for q in queries:
                 if not q:
@@ -93,10 +174,6 @@ class Engine():
                 flag = query.parse(line)
                 if not flag:
                     continue
-                print flag
-                print query.cols
-                print query.tables
-                print query.conds
                 self.idx = []
                 self.process(query, flag)
 
