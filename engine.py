@@ -6,13 +6,16 @@
 METAFILE = 'metadata.txt'
 
 class Engine():
-    
+
+
     def __init__(self):
         
         self.tables = []
-        self.parseMeta()
-    
-    def parseMeta(self):
+        self.readMeta()
+        self.readTables()
+
+
+    def readMeta(self):
         
         with open(METAFILE) as f:
             data = f.readlines()
@@ -24,10 +27,24 @@ class Engine():
                     t.name = data[idx].strip()
                     idx += 1
                     while data[idx].strip() != '<end_table>':
-                        t.cols.append(data[idx].strip())
+                        t.cols[data[idx].strip()] = []
+                        t.attr.append(data[idx].strip())
                         idx += 1
                     self.tables.append(t)
                 idx += 1
+
+
+    def readTables(self):
+
+        for table in self.tables:
+            with open(table.name + '.csv') as f:
+                for line in f:
+                    line = line.split(',')
+                    idx = 0
+                    for col in table.cols:
+                        table.cols[col].append(line[idx])
+                        idx += 1
+
 
     def engine(self):
         
@@ -41,9 +58,9 @@ class Table():
     def __init__(self):
 
         self.name = ''
-        self.cols = []
+        self.attr = []
+        self.cols = {}
 
 if __name__ == '__main__':
     sql = Engine()
     sql.engine
-
