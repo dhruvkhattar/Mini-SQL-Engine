@@ -148,6 +148,7 @@ class Engine():
 
 
     def process(self, query, flag):
+        
         if flag == 1:
             self.idx = xrange(self.tables[query.tables[0]].n)
             if any(re.match(r'(?i)(distinct)', word) for word in query.cols):
@@ -158,6 +159,67 @@ class Engine():
                     self.processAgg(query)
                     return
             self.processRows(query)
+        if flag == 2:
+            self.processCondition(query, 0)
+            self.processRows(query)
+
+    def processCondition(self, query, idx):
+
+        if not re.match(r'([^<>=]+)(<|=|>|<>|<=|>=)([^<>=]+)', query.conds[idx]):
+            print 'Invalid Conditon'
+            return
+        
+        lhs = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\1', query.conds[idx]).strip()
+        op = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\2', query.conds[idx]).strip()
+        rhs = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\3', query.conds[idx]).strip()
+
+        ltable = re.sub(r'(.+)\.(.+)', r'\1', lhs)
+        lcol = re.sub(r'(.+)\.(.+)', r'\2', lhs)
+        rtable = re.sub(r'(.+)\.(.+)', r'\1', rhs)
+        rcol = re.sub(r'(.+)\.(.+)', r'\2', rhs)
+       
+        val = 0
+        try:
+            rhs = int(rhs)
+            val = 1
+        except ValueError:
+            val = 0
+
+        if val:
+            if lhs == ltable:
+                for table in self.tables:
+                    if lhs in self.tables[table].cols:
+                        idx = 0
+                        for i in self.tables[table].cols[lhs]:
+                            if self.check(i, op, rhs):
+                                self.idx.append(idx)
+                            idx += 1
+            else:
+                if lcol in self.tables[ltable].cols:
+                    idx = 0
+                    for i in self.tables[ltable].cols[lcol]:
+                        if self.check(i, op, rhs):
+                            self.idx.append(idx)
+                        idx += 1
+                else:
+                    print ltable + ' doesn\'t has a column ' + lcol
+
+        
+
+    def check(self, lhs, op, rhs):
+
+        if op == '=':
+            return lhs == rhs
+        elif op == '>':
+            return lhs > rhs
+        elif op == '<':
+            return lhs < rhs
+        elif op == '>=':
+            return lhs >= rhs
+        elif op == '<=':
+            return lhs <= rhs
+        elif op == '<>':
+            return lhs != rhs
 
 
     def engine(self):
