@@ -7,6 +7,7 @@ from __future__ import division
 import re
 import numpy as np
 import sys
+import itertools
 from prettytable import PrettyTable
 
 METAFILE = 'metadata.txt'
@@ -17,6 +18,8 @@ class Engine():
     def __init__(self):
         
         self.tables = {}
+        self.tn = {}
+        self.tabs = []
         self.readMeta()
         self.readTables()
         self.engine()
@@ -38,6 +41,7 @@ class Engine():
                         t.attr.append(data[idx].strip())
                         idx += 1
                     self.tables[t.name] = t
+                    self.tabs.append(t.name)
                 idx += 1
 
 
@@ -50,28 +54,62 @@ class Engine():
                     line = line.split(',')
                     idx = 0
                     for col in self.tables[table].attr:
-                        self.tables[table].cols[col].append(int(line[idx].strip()))
+                        line[idx] = int(line[idx].strip())
+                        self.tables[table].cols[col].append(line[idx])
                         idx += 1
+                    self.tables[table].rows.append(line)
 
+    def processCols(self, query):
 
-    def processRows(self, query):
-        
+        fcols = []
         if '*' in query.cols:
             query.cols = []
             for table in query.tables:
-                query.cols += self.tables[table].attr
+                fcols += [ table + '.' + x for x in self.tables[table].attr]
+        else:
+            for col in query.cols:
+                if re.match(r'.+\..+', col):
+                    fcols.append(col)
+                else:
+                    cnt = 0
+                    for table in query.tables:
+                        if col in self.tables[table].cols:
+                            tab = table
+                            fcols.append(tab + '.' + col)
+                            cnt += 1
+                    if cnt > 1:
+                        print 'Same Column name in 2 tables.'
+                        return -1
+                    if cnt == 0:
+                        print 'Column not found'
+                        return -1
+        return fcols
 
-        t = PrettyTable(query.cols)
+    def processRows(self, query):
+        
+        fcols = self.processCols(query)
+        if fcols == -1:
+            return 
+
+        t = PrettyTable(fcols)
         for i in self.idx:
             row = []
-            for col in query.cols:
-                cnt = 0
-                for table in query.tables:
-                    if col in self.tables[table].cols:
-                        cnt += 1
-                        row.append(self.tables[table].cols[col][i])
-                if cnt > 1:
-                    print 'Same Column name in 2 tables.'
+            for col in fcols:
+                tab = re.sub(r'(.+)\.(.+)', r'\1', col)
+                co = re.sub(r'(.+)\.(.+)', r'\2', col)
+                if tab not in self.tables:
+                    print 'Table ' + tab + ' not found.'
+                    return
+                if co not in self.tables[tab].attr:
+                    print 'Column ' + co + ' not found.'
+                    return
+                
+                cn = 0
+                for j in self.tables[tab].attr:
+                    if j == co:
+                        break;
+                    cn += 1
+                row.append(self.outtable[i][self.tn[tab]][cn])
             t.add_row(row)
         print t
 
@@ -82,43 +120,52 @@ class Engine():
         row = []
         for col in query.cols:
             func = re.sub(r'\(.+\)', '', col)
-            attr = re.sub(r'.+\((.+)\)', r'\1', col)
-            cnt = 0
-            if re.match(r'(?i)(sum)',func):
+            attr = re.sub(r'.+\((.+)\)', r'\1', col).strip()
+            tab = ''
+            if re.match(r'.+\..+', attr):
+                tab = re.sub(r'(.+)\.(.+)', r'\1', attr)
+                co = re.sub(r'(.+)\.(.+)', r'\2', attr)
+            else:
+                cnt = 0
+                co = attr
                 for table in query.tables:
                     if attr in self.tables[table].cols:
+                        tab = table
                         cnt += 1
-                        agg = 0
-                        for i in self.idx:
-                            agg += self.tables[table].cols[attr][i]
-                        row.append(agg)
-            elif re.match(r'(?i)(max)',func):
-                for table in query.tables:
-                    if attr in self.tables[table].cols:
-                        cnt += 1
-                        agg = -sys.maxint - 1
-                        for i in self.idx:
-                            agg = max(agg, self.tables[table].cols[attr][i])
-            elif re.match(r'(?i)(min)',func):
-                for table in query.tables:
-                    if attr in self.tables[table].cols:
-                        cnt += 1
-                        agg = sys.maxint
-                        for i in self.idx:
-                            agg = min(agg, self.tables[table].cols[attr][i])
-            elif re.match(r'(?i)(avg)',func):
-                for table in query.tables:
-                    if attr in self.tables[table].cols:
-                        cnt += 1
-                        agg = 0
-                        for i in self.idx:
-                            agg += self.tables[table].cols[attr][i]
-                        agg /= len(self.idx) 
-            
-            if cnt > 1:
-                print 'Same Column name ' +'"' + attr + '"' + ' in 2 tables.'
+                if cnt > 1:
+                    print 'Same Column name in 2 tables.'
+                    return
+            if tab not in self.tables:
+                print 'Table ' + tab + ' not found.'
                 return
-        row.append(agg)
+            if co not in self.tables[tab].attr:
+                print 'Column ' + co + ' not found.'
+                return
+            cn = 0
+            for j in self.tables[tab].attr:
+                if j == co:
+                    break;
+                cn += 1
+
+            if re.match(r'(?i)(sum)',func):
+                agg = 0
+                for i in self.idx:
+                    agg += self.outtable[i][self.tn[tab]][cn]
+            elif re.match(r'(?i)(max)',func):
+                agg = -sys.maxint - 1
+                for i in self.idx:
+                    agg = max(agg, self.outtable[i][self.tn[tab]][cn])
+            elif re.match(r'(?i)(min)',func):
+                agg = sys.maxint
+                for i in self.idx:
+                    agg = min(agg, self.outtable[i][self.tn[tab]][cn])
+            elif re.match(r'(?i)(avg)',func):
+                agg = 0
+                for i in self.idx:
+                    agg += self.outtable[i][self.tn[tab]][cn]
+                agg /= len(self.idx) 
+            
+            row.append(agg)
         t.add_row(row)
         print t
 
@@ -129,19 +176,38 @@ class Engine():
             print 'Distinct can only be used with one column'
             return
         t = PrettyTable(query.cols)        
-        col = re.sub(r'.+\((.+)\)', r'\1', query.cols[0])
+        col = re.sub(r'.+\((.+)\)', r'\1', query.cols[0]).strip()
+        tab = ''
+        if re.match(r'.+\..+', col):
+            tab = re.sub(r'(.+)\.(.+)', r'\1', col)
+            co = re.sub(r'(.+)\.(.+)', r'\2', col)
+        else:
+            cnt = 0
+            co = col
+            for table in query.tables:
+                if col in self.tables[table].cols:
+                    tab = table
+                    cnt += 1
+            if cnt > 1:
+                print 'Same Column name in 2 tables.'
+                return
+        if tab not in self.tables:
+            print 'Table ' + tab + ' not found.'
+            return
+        if co not in self.tables[tab].attr:
+            print 'Column ' + co + ' not found.'
+            return
         distinct = {}
         for i in self.idx:
             row = []
-            cnt = 0
-            for table in query.tables:
-                if col in self.tables[table].cols:
-                    cnt += 1
-                    if self.tables[table].cols[col][i] not in distinct:
-                        row.append(self.tables[table].cols[col][i])
-                        distinct[self.tables[table].cols[col][i]] = 1
-            if cnt > 1:
-                print 'Same Column name in 2 tables.'
+            cn = 0
+            for j in self.tables[tab].attr:
+                if j == co:
+                    break;
+                cn += 1
+            if self.outtable[i][self.tn[tab]][cn] not in distinct:
+                row.append(self.outtable[i][self.tn[tab]][cn])
+                distinct[self.outtable[i][self.tn[tab]][cn]] = 1
             if row:
                 t.add_row(row)
         print t
@@ -150,61 +216,93 @@ class Engine():
     def process(self, query, flag):
         
         if flag == 1:
-            self.idx = xrange(self.tables[query.tables[0]].n)
-            if any(re.match(r'(?i)(distinct)', word) for word in query.cols):
-                self.processDistinct(query)
+            n = 1;
+            for i in query.tables:
+                n *= self.tables[i].n
+            self.idx = xrange(n)
+        elif flag == 2:
+            ret = self.processCondition(query, 0)
+            if ret == -1:
                 return
-            for word in query.cols:
-                if re.match(r'.+\(.+\)', word):
-                    self.processAgg(query)
-                    return
-            self.processRows(query)
-        if flag == 2:
-            self.processCondition(query, 0)
-            self.processRows(query)
+            else:
+                self.idx = ret
+        else:
+            print flag
+            ret1 = self.processCondition(query, 0)
+            ret2 = self.processCondition(query, 1)
+            if ret1 == -1 or ret2 == -1:
+                return
+            elif flag == 3:
+                self.idx = list(set(ret1) | set(ret2))
+            elif flag == 4:
+                self.idx = list(set(ret1) & set(ret2))
+        if any(re.match(r'(?i)(distinct)', word) for word in query.cols):
+            self.processDistinct(query)
+            return
+        for word in query.cols:
+            if re.match(r'.+\(.+\)', word):
+                self.processAgg(query)
+                return
+        self.processRows(query)
 
     def processCondition(self, query, idx):
 
+        ind = []
         if not re.match(r'([^<>=]+)(<|=|>|<>|<=|>=)([^<>=]+)', query.conds[idx]):
             print 'Invalid Conditon'
-            return
+            return -1
         
         lhs = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\1', query.conds[idx]).strip()
         op = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\2', query.conds[idx]).strip()
         rhs = re.sub(r'(.+)(<|=|>|<>|<=|>=)(.+)', r'\3', query.conds[idx]).strip()
 
-        ltable = re.sub(r'(.+)\.(.+)', r'\1', lhs)
-        lcol = re.sub(r'(.+)\.(.+)', r'\2', lhs)
-        rtable = re.sub(r'(.+)\.(.+)', r'\1', rhs)
-        rcol = re.sub(r'(.+)\.(.+)', r'\2', rhs)
-       
         val = 0
         try:
             rhs = int(rhs)
             val = 1
         except ValueError:
             val = 0
+       
+        tab = ''
+        if re.match(r'(.+)\.(.+)', lhs):
+            tab = re.sub(r'(.+)\.(.+)', r'\1', lhs)
+            co = re.sub(r'(.+)\.(.+)', r'\2', lhs)
+        else:
+            co = lhs
+            for table in query.tables:
+                cnt = 0
+                if co in self.tables[table].cols:
+                    tab = table
+                    cnt += 1
+            if cnt > 1:
+                print 'Same Column name in 2 tables.'
+                return -1
+        
+        if tab not in self.tables:
+            print 'Table ' + tab + ' not found.'
+            return -1
+        if co not in self.tables[tab].attr:
+            print 'Column ' + co + ' not found.'
+            return -1
 
         if val:
-            if lhs == ltable:
-                for table in self.tables:
-                    if lhs in self.tables[table].cols:
-                        idx = 0
-                        for i in self.tables[table].cols[lhs]:
-                            if self.check(i, op, rhs):
-                                self.idx.append(idx)
-                            idx += 1
-            else:
-                if lcol in self.tables[ltable].cols:
-                    idx = 0
-                    for i in self.tables[ltable].cols[lcol]:
-                        if self.check(i, op, rhs):
-                            self.idx.append(idx)
-                        idx += 1
-                else:
-                    print ltable + ' doesn\'t has a column ' + lcol
-
-        
+            idx = 0
+            cn = 0
+            for j in self.tables[tab].attr:
+                if j == co:
+                    break;
+                cn += 1
+            n = 1;
+            for i in query.tables:
+                n *= self.tables[i].n
+            for i in xrange(n):
+                if self.check(self.outtable[i][self.tn[tab]][cn], op, rhs):
+                    ind.append(idx)
+                idx += 1
+        else:
+            rtable = re.sub(r'(.+)\.(.+)', r'\1', rhs)
+            rcol = re.sub(r'(.+)\.(.+)', r'\2', rhs)
+        return ind
 
     def check(self, lhs, op, rhs):
 
@@ -221,6 +319,14 @@ class Engine():
         elif op == '<>':
             return lhs != rhs
 
+    
+    def retrieveTables(self, table):
+
+        return self.tables[table].rows
+    
+    def retrieveCols(self, table):
+
+        return self.tables[table].attr
 
     def engine(self):
         
@@ -230,12 +336,30 @@ class Engine():
                 break
             queries = line.split(';')
             for q in queries:
+                self.outtable = []
+                self.outcols = []
                 if not q:
                     continue
                 query = Query()
                 flag = query.parse(line)
                 if not flag:
                     continue
+                cnt = 0
+                fg = 0
+                for i in query.tables:
+                    if i not in self.tables:
+                        print 'Table not found.'
+                        fg = 1
+                        break
+                    self.tn[i] = cnt
+                    cnt += 1
+
+                if fg:
+                    continue
+
+                for i in itertools.product(*map(self.retrieveTables,query.tables)):
+                    self.outtable.append(i)
+                self.outcols = map(self.retrieveCols, query.tables)
                 self.idx = []
                 self.process(query, flag)
 
@@ -289,6 +413,7 @@ class Table():
         self.name = ''
         self.attr = []
         self.cols = {}
+        self.rows = []
         self.n = 0
 
 if __name__ == '__main__':
