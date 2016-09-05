@@ -269,8 +269,8 @@ class Engine():
             co = re.sub(r'(.+)\.(.+)', r'\2', lhs)
         else:
             co = lhs
+            cnt = 0
             for table in query.tables:
-                cnt = 0
                 if co in self.tables[table].cols:
                     tab = table
                     cnt += 1
@@ -300,8 +300,47 @@ class Engine():
                     ind.append(idx)
                 idx += 1
         else:
-            rtable = re.sub(r'(.+)\.(.+)', r'\1', rhs)
-            rcol = re.sub(r'(.+)\.(.+)', r'\2', rhs)
+            ltab = tab
+            lco  = co
+            rtab = ''
+            if re.match(r'(.+)\.(.+)', rhs):
+                rtab = re.sub(r'(.+)\.(.+)', r'\1', rhs)
+                rco = re.sub(r'(.+)\.(.+)', r'\2', rhs)
+            else:
+                rco = rhs
+                cnt = 0
+                for table in query.tables:
+                    if rco in self.tables[table].cols:
+                        rtab = table
+                        cnt += 1
+                if cnt > 1:
+                    print 'Same Column name in 2 tables.'
+                    return -1
+            if rtab not in self.tables:
+                print 'Table ' + rtab + ' not found.'
+                return -1
+            if rco not in self.tables[rtab].attr:
+                print 'Column ' + rco + ' not found.'
+                return -1
+            idx = 0
+            cl = 0
+            for j in self.tables[ltab].attr:
+                if j == lco:
+                    break;
+                cl += 1
+            cr = 0
+            for j in self.tables[rtab].attr:
+                if j == rco:
+                    break;
+                cr += 1
+            n = 1;
+            for i in query.tables:
+                n *= self.tables[i].n
+            for i in xrange(n):
+                if self.check(self.outtable[i][self.tn[ltab]][cl], op, self.outtable[i][self.tn[rtab]][cr]):
+                    ind.append(idx)
+                idx += 1
+
         return ind
 
     def check(self, lhs, op, rhs):
