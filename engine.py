@@ -78,10 +78,10 @@ class Engine():
                             fcols.append(tab + '.' + col)
                             cnt += 1
                     if cnt > 1:
-                        print 'Same Column name in 2 tables.'
+                        print 'Same Column "' + col + '" in 2 or more tables.'
                         return -1
                     if cnt == 0:
-                        print 'Column not found'
+                        print 'Column "' + col + '" not found'
                         return -1
         return fcols
 
@@ -98,10 +98,10 @@ class Engine():
                 tab = re.sub(r'(.+)\.(.+)', r'\1', col)
                 co = re.sub(r'(.+)\.(.+)', r'\2', col)
                 if tab not in self.tables:
-                    print 'Table ' + tab + ' not found.'
+                    print 'Table "' + tab + '" not found.'
                     return
                 if co not in self.tables[tab].attr:
-                    print 'Column ' + co + ' not found.'
+                    print 'Column "' + co + '" not found.'
                     return
                 
                 cn = 0
@@ -135,11 +135,14 @@ class Engine():
                 if cnt > 1:
                     print 'Same Column name in 2 tables.'
                     return
+                elif cnt == 0:
+                    print 'Column "' + co + ' not found.'
+                    return
             if tab not in self.tables:
-                print 'Table ' + tab + ' not found.'
+                print 'Table "' + tab + '" not found.'
                 return
             if co not in self.tables[tab].attr:
-                print 'Column ' + co + ' not found.'
+                print 'Column "' + co + ' not found.'
                 return
             cn = 0
             for j in self.tables[tab].attr:
@@ -173,11 +176,13 @@ class Engine():
     def processDistinct(self, query):
         
         if len(query.cols) > 1:
-            print 'Distinct can only be used with one column'
+            print 'Distinct can be used with only 1 Column.'
             return
         t = PrettyTable(query.cols)        
         col = re.sub(r'.+\((.+)\)', r'\1', query.cols[0]).strip()
+        cn = []
         tab = ''
+        col = col.strip()
         if re.match(r'.+\..+', col):
             tab = re.sub(r'(.+)\.(.+)', r'\1', col)
             co = re.sub(r'(.+)\.(.+)', r'\2', col)
@@ -189,25 +194,29 @@ class Engine():
                     tab = table
                     cnt += 1
             if cnt > 1:
-                print 'Same Column name in 2 tables.'
+                print 'Same Column "' + co + '" in 2 or more tables.'
+                return
+            elif cnt == 0:
+                print 'Column "' + co + '" not found.'
                 return
         if tab not in self.tables:
-            print 'Table ' + tab + ' not found.'
+            print 'Table "' + tab + '" not found.'
             return
         if co not in self.tables[tab].attr:
-            print 'Column ' + co + ' not found.'
+            print 'Column "' + co + '" not found.'
             return
+        cn = 0
+        for j in self.tables[tab].attr:
+            if j == co:
+                break;
+            cn += 1
         distinct = {}
         for i in self.idx:
             row = []
-            cn = 0
-            for j in self.tables[tab].attr:
-                if j == co:
-                    break;
-                cn += 1
-            if self.outtable[i][self.tn[tab]][cn] not in distinct:
-                row.append(self.outtable[i][self.tn[tab]][cn])
-                distinct[self.outtable[i][self.tn[tab]][cn]] = 1
+            tup = self.outtable[i][self.tn[tab]][cn]
+            if tup not in distinct:
+                row.append(tup)
+                distinct[tup] = 1
             if row:
                 t.add_row(row)
         print t
@@ -227,7 +236,6 @@ class Engine():
             else:
                 self.idx = ret
         else:
-            print flag
             ret1 = self.processCondition(query, 0)
             ret2 = self.processCondition(query, 1)
             if ret1 == -1 or ret2 == -1:
@@ -275,9 +283,11 @@ class Engine():
                     tab = table
                     cnt += 1
             if cnt > 1:
-                print 'Same Column name in 2 tables.'
+                print 'Same Column "' + co + '" in 2 or more tables.'
                 return -1
-        
+            elif cnt == 0:
+                print 'Column ' + co + ' not found.'
+                return -1
         if tab not in self.tables:
             print 'Table ' + tab + ' not found.'
             return -1
@@ -286,7 +296,6 @@ class Engine():
             return -1
 
         if val:
-            idx = 0
             cn = 0
             for j in self.tables[tab].attr:
                 if j == co:
@@ -297,8 +306,7 @@ class Engine():
                 n *= self.tables[i].n
             for i in xrange(n):
                 if self.check(self.outtable[i][self.tn[tab]][cn], op, rhs):
-                    ind.append(idx)
-                idx += 1
+                    ind.append(i)
         else:
             ltab = tab
             lco  = co
@@ -314,15 +322,17 @@ class Engine():
                         rtab = table
                         cnt += 1
                 if cnt > 1:
-                    print 'Same Column name in 2 tables.'
+                    print 'Same Column "' + rco + '" in 2 or more tables.'
+                    return -1
+                if cnt == 0:
+                    print 'Column "' + rco + '" not found.'
                     return -1
             if rtab not in self.tables:
-                print 'Table ' + rtab + ' not found.'
+                print 'Table "' + rtab + '" not found.'
                 return -1
             if rco not in self.tables[rtab].attr:
-                print 'Column ' + rco + ' not found.'
+                print 'Column "' + rco + '" not found.'
                 return -1
-            idx = 0
             cl = 0
             for j in self.tables[ltab].attr:
                 if j == lco:
@@ -338,8 +348,7 @@ class Engine():
                 n *= self.tables[i].n
             for i in xrange(n):
                 if self.check(self.outtable[i][self.tn[ltab]][cl], op, self.outtable[i][self.tn[rtab]][cr]):
-                    ind.append(idx)
-                idx += 1
+                    ind.append(i)
 
         return ind
 
@@ -370,38 +379,46 @@ class Engine():
     def engine(self):
         
         while True:
-            line = raw_input('MiniSQL>')
-            if line == 'exit':
-                break
-            queries = line.split(';')
-            for q in queries:
-                self.outtable = []
-                self.outcols = []
-                if not q:
-                    continue
-                query = Query()
-                flag = query.parse(line)
-                if not flag:
-                    continue
-                cnt = 0
-                fg = 0
-                for i in query.tables:
-                    if i not in self.tables:
-                        print 'Table not found.'
-                        fg = 1
-                        break
-                    self.tn[i] = cnt
-                    cnt += 1
+            try:
+                line = raw_input('MiniSQL>')
+                if line == 'exit' or line == 'quit':
+                    break
+                queries = line.split(';')
+                nq = len(queries)
+                f = np.ones(nq)
+                if queries[nq-1] != '':
+                    f[nq-1] = 0;
+                for j in xrange(nq):
+                    self.outtable = []
+                    self.outcols = []
+                    if not queries[j]:
+                        continue
+                    query = Query()
+                    if f[j]:
+                        queries[j] = queries[j] + ';'
+                    flag = query.parse(queries[j])
+                    if not flag:
+                        continue
+                    cnt = 0
+                    fg = 0
+                    for i in query.tables:
+                        if i not in self.tables:
+                            print 'Table "' + i + '" not found.'
+                            fg = 1
+                            break
+                        self.tn[i] = cnt
+                        cnt += 1
 
-                if fg:
-                    continue
+                    if fg:
+                        continue
 
-                for i in itertools.product(*map(self.retrieveTables,query.tables)):
-                    self.outtable.append(i)
-                self.outcols = map(self.retrieveCols, query.tables)
-                self.idx = []
-                self.process(query, flag)
-
+                    for i in itertools.product(*map(self.retrieveTables,query.tables)):
+                        self.outtable.append(i)
+                    self.outcols = map(self.retrieveCols, query.tables)
+                    self.idx = []
+                    self.process(query, flag)
+            except Exception as e:
+                print e
 
 class Query():
     
@@ -414,18 +431,23 @@ class Query():
     def parse(self, line):
 
         line = line.strip()
-        if not re.match(r'(?i)(^select\ ).+(?i)(\ from\ ).+[;]', line):
+        if not re.match(r'^(?i)(select\ ).+(?i)(\ from\ ).+[;]$', line):
             print 'You have an error in your SQL syntax.'
             return 0
-        cols = re.sub(r'(?i)(^select\ )(.+)(?i)(\ from\ ).+[;]', r'\2' , line).split(',')
+
+        cols = re.sub(r'^(?i)(select\ )(.+)(?i)(\ from\ ).+[;]$', r'\2' , line).split(',')
         for col in cols:
             self.cols.append(col.strip())
 
+        if re.search(r'(?i)(\ where)[\ ]*$', line):
+            print 'Where conditions not provided.'
+            return 0
+
         if re.search(r'(?i)(\ where\ )', line):
-            tables = re.sub(r'(?i)(^select\ ).+(?i)(\ from\ )(.+)(?i)(\ where\ )(.+)[;]', r'\3' , line).split(',')
+            tables = re.sub(r'^(?i)(select\ ).+(?i)(\ from\ )(.+)(?i)(\ where\ )(.+)[;]$', r'\3' , line).split(',')
             for table in tables:
                 self.tables.append(table.strip())
-            conds = re.sub(r'(?i)(^select\ ).+(?i)(\ from\ ).+(?i)(\ where\ )(.+)[;]', r'\4' , line)
+            conds = re.sub(r'^(?i)(select\ ).+(?i)(\ from\ ).+(?i)(\ where\ )(.+)[;]$', r'\4' , line).strip()
             if re.search(r'(?i)(\ or\ )', conds):
                 conds = re.sub(r'^(.+)(?i)(or)(.+)$', r'\1 or \3' , conds).split('or')
                 for cond in conds:
